@@ -149,6 +149,30 @@ body{
 .loading{text-align:center;padding:60px 20px}
 .spinner{display:inline-block;width:28px;height:28px;border:3px solid #f0e6d3;border-top-color:var(--gold);border-radius:50%;animation:spin .8s linear infinite;margin-bottom:8px}
 @keyframes spin{to{transform:rotate(360deg)}}
+
+.manual-add-btn{display:block;margin:12px auto 0;background:none;border:1.5px dashed #d9c8b0;color:var(--text2);font-size:13px;padding:8px 20px;border-radius:20px;cursor:pointer}
+.manual-add-btn:active{background:#fdf9f3}
+
+.time-modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1000;align-items:flex-end;justify-content:center;padding:16px}
+.time-modal-overlay.show{display:flex}
+.time-modal{background:#fff;border-radius:18px 18px 0 0;width:100%;max-width:480px;padding:20px 16px 24px;max-height:85vh;overflow-y:auto}
+.time-modal h3{text-align:center;font-size:17px;margin-bottom:4px}
+.time-modal .modal-sub{text-align:center;font-size:12px;color:var(--text2);margin-bottom:10px}
+.time-modal label{display:block;font-size:13px;font-weight:500;color:var(--text2);margin-bottom:4px}
+.time-modal select,.time-modal input{width:100%;padding:10px;border:1px solid #e0d5c7;border-radius:8px;font-size:14px;margin-bottom:12px;background:#fdf9f3;-webkit-appearance:none}
+.time-modal .btn-row{display:flex;gap:10px;margin-top:8px}
+.time-modal .btn-row button{flex:1;padding:12px;border:none;border-radius:22px;font-size:15px;font-weight:600;cursor:pointer}
+.time-modal .btn-cancel{background:#f0ebe0;color:#8D6E63}
+.time-modal .btn-confirm{background:var(--gold);color:#fff}
+.time-modal .btn-confirm:active{opacity:.85}
+.time-modal .type-grid-sm{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:14px}
+.time-modal .type-opt-sm{background:#faf7f3;border:2px solid transparent;border-radius:10px;padding:10px 8px;text-align:center;cursor:pointer;transition:all .15s}
+.time-modal .type-opt-sm:active,.time-modal .type-opt-sm.sel{border-color:var(--gold);background:#fffbf0}
+.time-modal .type-opt-sm .te{font-size:22px;display:block;margin-bottom:2px}
+.time-modal .type-opt-sm .tn{font-size:12px;font-weight:600}
+
+.record-delete{background:none;border:none;color:#d0c0b0;font-size:18px;cursor:pointer;padding:0 4px;line-height:1;margin-left:4px}
+.record-delete:active{color:#c0392b}
 </style>
 </head>
 <body>
@@ -163,6 +187,7 @@ body{
     </div>
 
     <div class="person-cards" id="personCards"></div>
+    <button class="manual-add-btn" onclick="showManualModal()">+ 手动添加记录</button>
 
     <div class="section-title">📋 今日排便记录</div>
     <div class="records-card" id="todayRecords"></div>
@@ -193,6 +218,24 @@ body{
     <div class="modal-sub" id="modalSub"></div>
     <div class="type-grid" id="typeGrid"></div>
     <button class="modal-cancel" onclick="closeModal()">取消</button>
+  </div>
+</div>
+
+<!-- Manual Time Modal -->
+<div class="time-modal-overlay" id="manualModal" onclick="if(event.target===this)hideManualModal()">
+  <div class="time-modal">
+    <h3>手动添加排便记录</h3>
+    <div class="modal-sub">选择成员、类型和时间</div>
+    <label>选择成员</label>
+    <select id="manualPerson"></select>
+    <label>选择类型</label>
+    <div class="type-grid-sm" id="manualTypeGrid"></div>
+    <label>选择时间</label>
+    <input type="datetime-local" id="manualTime">
+    <div class="btn-row">
+      <button class="btn-cancel" onclick="hideManualModal()">取消</button>
+      <button class="btn-confirm" onclick="handleManualCheckin()">确认添加</button>
+    </div>
   </div>
 </div>
 
@@ -239,11 +282,12 @@ function getMonday(d){var r=new Date(d);var day=r.getDay();r.setDate(r.getDate()
 
 async function sbGet(t,q){var r=await fetch(SB+'/rest/v1/'+t+'?'+(q||'select=*&order=created_at.desc'),{headers:H});if(!r.ok)throw new Error('Load fail');return r.json()}
 async function sbPost(t,b){var r=await fetch(SB+'/rest/v1/'+t,{method:'POST',headers:Object.assign({},H,{'Content-Type':'application/json','Prefer':'return=representation'}),body:JSON.stringify(b)});if(!r.ok)throw new Error('Save fail');return r.json()}
+async function sbDelete(t,id){var r=await fetch(SB+'/rest/v1/'+t+'?id=eq.'+id,{method:'DELETE',headers:H});if(!r.ok)throw new Error('Delete fail')}
 async function sbPatchCfg(k,v){await fetch(SB+'/rest/v1/poop_config?key=eq.'+encodeURIComponent(k),{method:'PATCH',headers:Object.assign({},H,{'Content-Type':'application/json','Prefer':'return=representation'}),body:JSON.stringify({value:v})})}
 
 async function loadData(){
   var a=await Promise.all([sbGet('poop_records'),sbGet('poop_config','select=*')]);
-  records=a[0].map(function(c){return{person:c.person,type:c.type,time:c.created_at}});
+  records=a[0].map(function(c){return{id:c.id,person:c.person,type:c.type,time:c.created_at}});
   var cfg={};a[1].forEach(function(c){cfg[c.key]=c.value});
   if(cfg.person1&&cfg.person2)persons=[cfg.person1,cfg.person2];
 }
@@ -261,10 +305,12 @@ function openModal(person){
 }
 function closeModal(e){if(!e||e.target===document.getElementById('modal')){document.getElementById('modal').style.display='none'}}
 
-async function doCheckin(person,type){
+async function doCheckin(person,type,customTime){
   document.getElementById('modal').style.display='none';
   try{
-    await sbPost('poop_records',{person:person,type:type});
+    var body={person:person,type:type};
+    if(customTime)body.created_at=customTime;
+    await sbPost('poop_records',body);
     await loadData();renderAll();
     var el=document.createElement('div');el.className='checkin-pop';
     var t=types.find(function(t){return t.name===type});
@@ -299,7 +345,7 @@ function renderTodayRecords(){
   var s=rec.slice().reverse();
   c.innerHTML=s.map(function(r){
     var t=types.find(function(t){return t.name===r.type});
-    return'<div class="record-row"><div class="record-emoji">'+(t?t.emoji:'💩')+'</div><div class="record-info"><div class="record-name">'+r.person+'</div><div class="record-type">'+r.type+'</div></div><div class="record-time">'+ft(r.time)+'</div></div>';
+    return'<div class="record-row"><div class="record-emoji">'+(t?t.emoji:'💩')+'</div><div class="record-info"><div class="record-name">'+r.person+'</div><div class="record-type">'+r.type+'</div></div><div class="record-time">'+ft(r.time)+'</div><button class="record-delete" onclick="event.stopPropagation();deleteRecord('+r.id+')" title="删除">×</button></div>';
   }).join('');
 }
 
@@ -360,6 +406,41 @@ function renderBattle(){
   else if(t1===t2&&t1>0)verdict='⚖️ 势均力敌！你们是天生一对！';
   else verdict='🚽 还未开战，等待第一泡...';
   c.innerHTML='<h3>⚔️ 历史总战绩</h3><div class="battle-bars"><div class="battle-name">'+persons[0]+'</div><div class="battle-bar-bg"><div class="battle-bar-fill l" style="width:'+(t1/max*100)+'%"></div></div><div class="battle-num">'+t1+'</div></div><div class="battle-bars"><div class="battle-name">'+persons[1]+'</div><div class="battle-bar-bg"><div class="battle-bar-fill r" style="width:'+(t2/max*100)+'%"></div></div><div class="battle-num">'+t2+'</div></div><div class="battle-verdict">'+verdict+'</div>';
+}
+
+var manualSelectedType='';
+function showManualModal(){
+  var sel=document.getElementById('manualPerson');
+  sel.innerHTML=persons.map(function(n){return'<option value=\"'+n+'\">'+n+'</option>'}).join('');
+  document.getElementById('manualTypeGrid').innerHTML=types.map(function(t,i){
+    return'<div class=\"type-opt-sm'+(manualSelectedType===t.name?' sel':'')+'\" onclick=\"selectManualType(\''+t.name+'\',this)\"><span class=\"te\">'+t.emoji+'</span><span class=\"tn\">'+t.name+'</span></div>';
+  }).join('');
+  var now=new Date();
+  document.getElementById('manualTime').value=new Date(now.getTime()-now.getTimezoneOffset()*60000).toISOString().slice(0,16);
+  document.getElementById('manualModal').classList.add('show');
+}
+function selectManualType(typeName,el){
+  manualSelectedType=typeName;
+  document.querySelectorAll('#manualTypeGrid .type-opt-sm').forEach(function(x){x.classList.remove('sel')});
+  el.classList.add('sel');
+}
+function hideManualModal(){document.getElementById('manualModal').classList.remove('show');manualSelectedType=''}
+async function handleManualCheckin(){
+  var person=document.getElementById('manualPerson').value;
+  var timeVal=document.getElementById('manualTime').value;
+  if(!manualSelectedType){toast('请选择便便类型');return}
+  if(!timeVal){toast('请选择时间');return}
+  var customTime=new Date(timeVal).toISOString();
+  try{
+    await sbPost('poop_records',{person:person,type:manualSelectedType,created_at:customTime});
+    await loadData();renderAll();hideManualModal();manualSelectedType='';
+    toast('手动记录成功！💩');
+  }catch(e){toast('记录失败，请重试')}
+}
+async function deleteRecord(id){
+  if(!confirm('确定要删除这条记录吗？'))return;
+  try{await sbDelete('poop_records',id);await loadData();renderAll();toast('已删除')}
+  catch(e){toast('删除失败，请重试')}
 }
 
 function toggleCfg(){var p=document.getElementById('cfgPanel');p.classList.toggle('show');if(p.classList.contains('show')){document.getElementById('cn1').value=persons[0];document.getElementById('cn2').value=persons[1]}}
