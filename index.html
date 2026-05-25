@@ -173,6 +173,16 @@ body{
 
 .record-delete{background:none;border:none;color:#d0c0b0;font-size:18px;cursor:pointer;padding:0 4px;line-height:1;margin-left:4px}
 .record-delete:active{color:#c0392b}
+
+.period-nav{display:flex;align-items:center;justify-content:center;gap:14px;padding:8px 0 6px}
+.nav-arrow{width:34px;height:34px;border:none;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:18px;background:#fdf9f3;color:#8D6E63;transition:background .15s;-webkit-tap-highlight-color:transparent}
+.nav-arrow:active{background:#f0e6d3}
+.nav-arrow:disabled{background:#faf7f3;color:#d0c0b0;pointer-events:none}
+.period-label{font-size:15px;font-weight:600;min-width:130px;text-align:center;color:var(--text)}
+
+.all-date-header{font-size:13px;font-weight:600;padding:12px 0 6px;margin-top:4px;color:var(--gold);border-bottom:1px solid #faf3eb}
+.all-date-header:first-child{margin-top:0;padding-top:0}
+.all-records-wrap{max-height:65vh;overflow-y:auto;-webkit-overflow-scrolling:touch}
 </style>
 </head>
 <body>
@@ -197,6 +207,12 @@ body{
       <div class="stats-tab active" data-period="week">本周</div>
       <div class="stats-tab" data-period="month">本月</div>
       <div class="stats-tab" data-period="year">本年</div>
+      <div class="stats-tab" data-period="all">全部</div>
+    </div>
+    <div class="period-nav" id="periodNav">
+      <button class="nav-arrow nav-prev" onclick="navigatePeriod(-1)">&#8249;</button>
+      <span class="period-label" id="periodLabel"></span>
+      <button class="nav-arrow nav-next" onclick="navigatePeriod(1)">&#8250;</button>
     </div>
     <div class="stats-content" id="statsContent"></div>
 
@@ -246,7 +262,7 @@ var SB='https://jjekyhaileozrslwgoei.supabase.co';
 var SK='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpqZWt5aGFpbGVvenJzbHdnb2VpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk3MDgwMTQsImV4cCI6MjA5NTI4NDAxNH0.urz5cnfpbakiiChjo4orgux9KNboKCmgGERvf3kUxQc';
 var H={apikey:SK,Authorization:'Bearer '+SK};
 
-var persons=['宝宝','乖乖'],records=[],curPeriod='week',curPerson='';
+var persons=['宝宝','乖乖'],records=[],curPeriod='week',curPerson='',navAnchor=new Date();
 
 var types=[
   {emoji:'🟤',name:'标准便便',desc:'稳如老狗，平平淡淡才是真'},
@@ -351,11 +367,76 @@ function renderTodayRecords(){
 
 function renderStats(){
   var c=document.getElementById('statsContent');
-  if(curPeriod==='week')c.innerHTML=rw();else if(curPeriod==='month')c.innerHTML=rm();else c.innerHTML=ry();
+  var nav=document.getElementById('periodNav');
+  if(curPeriod==='all'){
+    nav.style.display='none';
+    c.innerHTML=ra();
+  } else {
+    nav.style.display='flex';
+    updatePeriodLabel();
+    updateNavArrows();
+    if(curPeriod==='week')c.innerHTML=rw();else if(curPeriod==='month')c.innerHTML=rm();else c.innerHTML=ry();
+  }
+}
+
+function updatePeriodLabel(){
+  var label=document.getElementById('periodLabel');
+  if(curPeriod==='week'){
+    var mon=getMonday(navAnchor),sun=new Date(mon);sun.setDate(sun.getDate()+6);
+    label.textContent=(mon.getMonth()+1)+'月'+mon.getDate()+'日 - '+(sun.getMonth()+1)+'月'+sun.getDate()+'日';
+  } else if(curPeriod==='month'){
+    label.textContent=navAnchor.getFullYear()+'年'+(navAnchor.getMonth()+1)+'月';
+  } else if(curPeriod==='year'){
+    label.textContent=navAnchor.getFullYear()+'年';
+  }
+}
+
+function updateNavArrows(){
+  var now=new Date(),nextBtn=document.querySelector('.nav-next');
+  if(curPeriod==='week'){
+    var curMon=getMonday(navAnchor),thisMon=getMonday(now);
+    nextBtn.disabled=curMon>=thisMon;
+  } else if(curPeriod==='month'){
+    nextBtn.disabled=navAnchor.getFullYear()>=now.getFullYear()&&navAnchor.getMonth()>=now.getMonth();
+  } else if(curPeriod==='year'){
+    nextBtn.disabled=navAnchor.getFullYear()>=now.getFullYear();
+  }
+}
+
+function navigatePeriod(dir){
+  if(curPeriod==='week'){navAnchor.setDate(navAnchor.getDate()+dir*7)}
+  else if(curPeriod==='month'){var tm=navAnchor.getMonth()+dir;navAnchor.setDate(1);navAnchor.setMonth(tm)}
+  else if(curPeriod==='year'){navAnchor.setFullYear(navAnchor.getFullYear()+dir)}
+  renderStats();
+}
+
+function ra(){
+  var groups={};
+  records.forEach(function(r){
+    var ds=r.time?r.time.split('T')[0]:'';
+    if(!ds)return;
+    if(!groups[ds])groups[ds]=[];
+    groups[ds].push(r);
+  });
+  var dates=Object.keys(groups).sort().reverse();
+  if(dates.length===0)return'<div class=\"empty-state\"><span class=\"big\">🚽</span>还没有任何记录</div>';
+  var wd=['日','一','二','三','四','五','六'];
+  var html='<div class=\"all-records-wrap\">';
+  dates.forEach(function(ds){
+    var d=new Date(ds.replace(/-/g,'/'));
+    var label=d.getFullYear()+'年'+(d.getMonth()+1)+'月'+d.getDate()+'日 (周'+wd[d.getDay()]+')';
+    html+='<div class=\"all-date-header\">'+label+'</div>';
+    groups[ds].slice().reverse().forEach(function(r){
+      var t=types.find(function(x){return x.name===r.type});
+      html+='<div class=\"record-row\"><div class=\"record-emoji\">'+(t?t.emoji:'💩')+'</div><div class=\"record-info\"><div class=\"record-name\">'+r.person+'</div><div class=\"record-type\">'+r.type+'</div></div><div class=\"record-time\">'+ft(r.time)+'</div><button class=\"record-delete\" onclick=\"event.stopPropagation();deleteRecord('+r.id+')\" title=\"删除\">×</button></div>';
+    });
+  });
+  html+='</div>';
+  return html;
 }
 
 function rw(){
-  var mon=getMonday(new Date()),days=[],dn=['一','二','三','四','五','六','日'],td=today(),t1=0,t2=0;
+  var mon=getMonday(navAnchor),days=[],dn=['一','二','三','四','五','六','日'],td=today(),t1=0,t2=0;
   for(var i=0;i<7;i++){var d=new Date(mon);d.setDate(d.getDate()+i);days.push(d)}
   var mx=1;days.forEach(function(d){var s=d.toISOString().split('T')[0];var c=records.filter(function(r){return r.time&&r.time.startsWith(s)}).length;if(c>mx)mx=c});
   var rows=days.map(function(d,i){
@@ -367,7 +448,7 @@ function rw(){
 }
 
 function rm(){
-  var n=new Date(),y=n.getFullYear(),m=n.getMonth(),fd0=new Date(y,m,1),ld=new Date(y,m+1,0),td=today();
+  var y=navAnchor.getFullYear(),m=navAnchor.getMonth(),fd0=new Date(y,m,1),ld=new Date(y,m+1,0),td=today();
   var sd=fd0.getDay();sd=sd===0?6:sd-1;
   var t1=0,t2=0,cls='';
   for(var i=0;i<sd;i++)cls+='<div class="dc empty"></div>';
@@ -376,18 +457,18 @@ function rm(){
     t1+=c1;t2+=c2;var h='';if(t>=6)h='h4';else if(t>=4)h='h3';else if(t>=2)h='h2';else if(t>=1)h='h1';
     cls+='<div class="dc '+h+(ds===td?' today':'')+'"><span class="dn">'+d+'</span>'+(t>0?'<span class="dt">'+t+'次</span>':'')+'</div>';
   }
-  return sbHtml(t1,t2,'本月')+'<div class="cal-month">'+y+'年'+(m+1)+'月</div><div class="calendar"><div class="dl">一</div><div class="dl">二</div><div class="dl">三</div><div class="dl">四</div><div class="dl">五</div><div class="dl">六</div><div class="dl">日</div>'+cls+'</div>';
+  return sbHtml(t1,t2,'本月')+'<div class="calendar"><div class="dl">一</div><div class="dl">二</div><div class="dl">三</div><div class="dl">四</div><div class="dl">五</div><div class="dl">六</div><div class="dl">日</div>'+cls+'</div>';
 }
 
 function ry(){
-  var n=new Date(),y=n.getFullYear(),ms=['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'],md=[],mx=1;
+  var n=new Date(),y=navAnchor.getFullYear(),ms=['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'],md=[],mx=1,isCurYear=(y===n.getFullYear());
   for(var m=0;m<12;m++){
     var p=y+'-'+pad(m+1),c1=records.filter(function(r){return r.time&&r.time.startsWith(p)&&r.person===persons[0]}).length,c2=records.filter(function(r){return r.time&&r.time.startsWith(p)&&r.person===persons[1]}).length;
     md.push({m:m,c1:c1,c2:c2,t:c1+c2});if(c1+c2>mx)mx=c1+c2;
   }
   var t1=md.reduce(function(s,d){return s+d.c1},0),t2=md.reduce(function(s,d){return s+d.c2},0);
-  var bars=md.map(function(d){var h1=(d.c1/mx*140)||0,h2=(d.c2/mx*140)||0;return'<div class="yb-col"><div class="yb-val">'+(d.t||'')+'</div><div class="yb-stack" style="height:'+(h1+h2)+'px"><div class="yb-p2" style="height:'+h2+'px"></div><div class="yb-p1" style="height:'+h1+'px"></div></div><div class="yb-lbl" style="'+(d.m===n.getMonth()?'font-weight:700':'')+'">'+ms[d.m]+'</div></div>'}).join('');
-  return sbHtml(t1,t2,'本年')+'<div class="cal-month">'+y+'年</div><div class="year-chart">'+bars+'</div><div style="display:flex;justify-content:center;gap:16px;margin-top:6px;font-size:11px;color:var(--text2)"><span>■ '+persons[0]+'</span><span>■ '+persons[1]+'</span></div>';
+  var bars=md.map(function(d){var h1=(d.c1/mx*140)||0,h2=(d.c2/mx*140)||0;return'<div class="yb-col"><div class="yb-val">'+(d.t||'')+'</div><div class="yb-stack" style="height:'+(h1+h2)+'px"><div class="yb-p2" style="height:'+h2+'px"></div><div class="yb-p1" style="height:'+h1+'px"></div></div><div class="yb-lbl" style="'+(isCurYear&&d.m===n.getMonth()?'font-weight:700':'')+'">'+ms[d.m]+'</div></div>'}).join('');
+  return sbHtml(t1,t2,'本年')+'<div class="year-chart">'+bars+'</div><div style="display:flex;justify-content:center;gap:16px;margin-top:6px;font-size:11px;color:var(--text2)"><span>■ '+persons[0]+'</span><span>■ '+persons[1]+'</span></div>';
 }
 
 function sbHtml(t1,t2,label){
@@ -447,7 +528,7 @@ function toggleCfg(){var p=document.getElementById('cfgPanel');p.classList.toggl
 async function saveCfg(){var n1=document.getElementById('cn1').value.trim(),n2=document.getElementById('cn2').value.trim();if(!n1||!n2){toast('名字不能为空');return}
   await sbPatchCfg('person1',n1);await sbPatchCfg('person2',n2);await loadData();renderAll();document.getElementById('cfgPanel').classList.remove('show');toast('名字已更新')}
 
-document.querySelectorAll('.stats-tab').forEach(function(t){t.addEventListener('click',function(){document.querySelectorAll('.stats-tab').forEach(function(x){x.classList.remove('active')});this.classList.add('active');curPeriod=this.dataset.period;renderStats()})});
+document.querySelectorAll('.stats-tab').forEach(function(t){t.addEventListener('click',function(){document.querySelectorAll('.stats-tab').forEach(function(x){x.classList.remove('active')});this.classList.add('active');curPeriod=this.dataset.period;navAnchor=new Date();renderStats()})});
 
 async function init(){try{await loadData();document.getElementById('loading').style.display='none';document.getElementById('main').style.display='block';renderAll()}catch(e){document.getElementById('loading').innerHTML='<div style="color:#c0392b">加载失败，请刷新重试</div>'}}
 init();
